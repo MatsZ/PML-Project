@@ -2,5 +2,5 @@
 Practical Machine Learning Project 
  
 HTML: PML_Project.html  
-Rmd: Prachtical_Machine_Learning_Project.Rmd  
-The Prachtical_Machine_Learning_Project_Files can be ignored.  
+Rmd: Practical_Machine_Learning_Project.Rmd  
+The Practical_Machine_Learning_Project_files can be ignored.  
