@@ -1,0 +1,150 @@
+---
+title: "Practical Machine Learning Project"
+author: "Mats Z"
+date: "Saturday, March 21, 2015"
+output: html_document
+---
+### Summary
+A model is built to predict the performance quality of weight lifting exercises. The training sample data is divided using k-folding to provide cross validation, and hereby four different models are built and tested. The model type chosen is Random Forest, based on its accuracy and the fact that the small data volume makes the processing time acceptable. The resulting model with the best performance shows a predicting result accuracy of very close to 1, and the calculated Out of Sample error based on the cross-validation is less than 1%.  
+
+### Data Sets
+The data set used is provided at http://groupware.les.inf.puc-rio.br/har and consists of two files; one for the training data and one for the test data. The test data is examined to enable data cleaning of both sets, but not exposed to the model.
+```{r, echo=FALSE, message=F, warning=F}
+# Use the Caret library:
+library(caret)
+
+# Get the training data set:
+pml <- read.csv("pml-training.csv")
+
+# Get the test data set:
+pmlTest <- read.csv("pml-testing.csv")
+
+```
+
+### Exploratory Analysis
+The raw data is examined and some basic graphs are drawn to better understand the nature of the data set. The six included users seems to be quite evenly represented, as well as the outcome of the exercises. Plotting a couple of the predictors shows that a tendency to grouping can be assumed.  
+  
+  The first graph shows how the many measurements each user has been contributed with, and as said the distribution is fairly even.
+
+```{r, echo=FALSE, message=F, warning=F}
+hist(as.numeric(pml$user_name), col = "lightblue", main = "User sample distribution", xlab = "User")
+```
+  
+  The next figure shows how well the activities were performed, which also should be the intended result of the model. The best performance is slightly more common than the rest levels.
+  
+```{r, echo=FALSE, message=F, warning=F}
+hist(as.numeric(pml$classe), col = "blue", main = "Quality distribution", xlab = "Performance Quality")
+```
+  
+  Finally two predictors are plotted mainly to show that some clustering can be seen in the data, however not straight-forward.
+```{r, echo=FALSE, message=F, warning=F}
+plot(pml$magnet_arm_z, pml$magnet_forearm_z, col = pml$classe, pch = 20, main = "Arm motion predictors", xlab = "Arm motion in z-direction", ylab = "Forearm motion in z-direction")
+legend("bottom", legend = "Color denotes user")
+```
+
+### Cleaning and Preprocessing
+From using some basic R functions it is clear that several of the columns are either empty or contain NAs. Columns 3 - 7 contain time and non-applicable variables, so these are excluded. In order to include the user identity in the predictors, the factor user_name is transformed to a numerical. A Near Zero Analysis is performed to reduce the number of predictors and by that a significant of columns can be removed.  
+The training and test set are subjects to the same treatment, in order to minimize the Out of Sample errors.  
+In order to be able to test different models, the non-complete rows are removed from the training set (there are no such rows among the 20 rows in the test set).  
+
+```{r, echo=FALSE, message=F, warning=F}
+# Remove the time and additional "window" columns:
+pml <- pml[, c(-(3:7))]
+pmlTest <- pmlTest[, c(-(3:7))]
+
+# "classe" is now column 155.
+
+# Transform factor user_name to numeric:
+pml$user_name <- as.numeric(pml$user_name)
+pmlTest$user_name <- as.numeric(pmlTest$user_name)
+
+# Find the near zero covariates (predictors) using all variables except "classe" (now column 155):
+nsv <- nearZeroVar(pml[, -155], saveMetrics = TRUE)
+# Remove the NZV:
+pml <- pml[!nsv$nzv]
+pmlTest <- pmlTest[!nsv$nzv]
+
+# "classe" is now column 96.
+
+# Remove all incomplete rows in training set:
+pml <- pml[complete.cases(pml), ]
+
+# Find all columns with NA in test set, and remove these columns from both sets:
+nas <- as.matrix(is.na(as.matrix(apply(pmlTest, 2, function(x) sum(x)))[, 1]))
+pml <- pml[ , !nas[ , 1]]
+pmlTest <- pmlTest[ , !nas[ , 1]]
+
+# "classe" is now column 55.
+```
+This treatment reduced the number of columns from 160 to 55, and the number of rows in the training set from more than 16 000 down to 406.  
+
+### Creating Traing Data Sets for Cross Validation
+
+In order to get a better training data set and to be able to estimate the Out of Sample error, cross-validation will be used. Hence, the training data is divided into four randomly selected blocks using k-folding. Each block will be part of the training set in three cases and be used as the validation set for one case, with separate models in the four cases. By this the validation data has never been exposed to the trained model before the evaluation.  
+```{r, echo=FALSE, message=F, warning=F}
+# Create k-fold training sets:
+folds <- createFolds(pml$classe, k = 4)
+
+# Create train and test sets based on the folds - proper cross validation:
+train1 <- pml[c(folds$Fold2, folds$Fold3, folds$Fold4), ]
+test1 <- pml[folds$Fold1, ]
+train2 <- pml[c(folds$Fold1, folds$Fold3, folds$Fold4), ]
+test2 <- pml[folds$Fold2, ]
+train3 <- pml[c(folds$Fold1, folds$Fold2, folds$Fold4), ]
+test3 <- pml[folds$Fold3, ]
+train4 <- pml[c(folds$Fold1, folds$Fold2, folds$Fold3), ]
+test4 <- pml[folds$Fold4, ]
+
+```
+
+### Building Random Forest Models
+
+From the four training data sets, four models can be built. All are chosen to be of the Random Forest type, due to its accuracy. Known drawbacks of this method like processing load and interpretability will not be an issue due to the relatively small data set. The models are preprocessed using PCA to find principle components in order to further enhance the accuracy.  
+
+```{r, echo=FALSE, message=F, warning=F}
+# Build a Random Forest model, using PCA as preprocess:
+modelFit1 <- train(classe ~ ., data = train1, method = "rf", preprocess = "pca")
+modelFit2 <- train(classe ~ ., data = train2, method = "rf", preprocess = "pca")
+modelFit3 <- train(classe ~ ., data = train3, method = "rf", preprocess = "pca")
+modelFit4 <- train(classe ~ ., data = train4, method = "rf", preprocess = "pca")
+
+```
+
+### Executing the Models
+
+The four models are used to predict the outcome of the four validation data sets. Since each validation set was not included in the training set per model, this will be the first time these sets are exposed to each model. The results of the validation are stored to be presented.  
+
+```{r, echo=FALSE, message=F, warning=F}
+# Test the models:
+pred1 <- as.matrix(predict(modelFit1, newdata = test1))
+pred2 <- as.matrix(predict(modelFit2, newdata = test2))
+pred3 <- as.matrix(predict(modelFit3, newdata = test3))
+pred4 <- as.matrix(predict(modelFit4, newdata = test4))
+```
+
+### Determine the Accuracy
+
+For each model the outcome is presented in form of the accuracy. As can be seen the models perform excellent and almost identically.  
+
+```{r, echo=FALSE, message=F, warning=F}
+# Check accuracy:
+res1 <- (sum(test1$classe == pred1) / nrow(pred1))
+res2 <- (sum(test2$classe == pred2) / nrow(pred2))
+res3 <- (sum(test3$classe == pred3) / nrow(pred3))
+res4 <- (sum(test4$classe == pred4) / nrow(pred4))
+```
+
+The resulting accuracies from the four models are `r round(res1, 4)`, `r round(res2, 4)`, `r round(res3, 4)` and `r round(res4, 4)`.   
+
+### Out of Sample Error
+The average error from the four validations is a measure of how well the model can predict the outcome from data not previously exposed to the model, called the Out of Sample error. Since the training data and the validation data is kept apart for each model this can be estimated, even though this may be an optimistic approach since the validation after all was collected at the same time and in the same way as the training data. But as an estimate of the error this can be used, implying the error when using data collected in a similar way.  
+
+```{r, echo=FALSE, message=F, warning=F}
+# Average accuracy, used as Out of Sample Error:
+oose <- 1 - sum(c(res1, res2, res3, res4)) / 4
+```
+The resulting average accuracy from the four models is `r round(oose, 5)`.   
+
+
+### Discussion
+The reason for using Random Forest modelling was that it shows a good compromise of accuracy and performance. Several other models were tested with similar or worse results - this is quite easy to do using the Caret package. The only drawback is that the model is not easily interpretable; why the model pick a specific result is not obvious. This can then be a problem when using the model for new data and the outcome seems to be drawn towards the unexpected; at that scenario the model accuracy can be questioned and the complexity makes it difficult to point to any tangible evidence.
